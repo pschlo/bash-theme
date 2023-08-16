@@ -1,0 +1,151 @@
+#!/bin/bash
+
+# This script can be sourced to make bash fancy, i.e.:
+#   - enable oh-my-posh prompt
+#   - enable exa icons
+# by default, only errors are printed
+
+# ARGUMENTS
+#   1               (optional) theme path. $POSH_THEME takes precedence.
+#   -f | --force    ignore $POSH_THEME and use the provided theme
+#   -u | --unset    unsets the theme and restores the default prompt
+#   -v | --verbose  print more information
+
+
+_log() { echo "use-theme: $1"; }
+
+# check if being sourced or executed; see https://stackoverflow.com/a/28776166
+if ! (return 0 2>/dev/null); then
+    # not sourced
+    _log "must be sourced"
+    exit 1
+fi
+
+_set_aliases() {
+    # configure fancy ls
+    alias exa="exa --icons"
+
+    # modify commands to inherit some environment variables, namely
+    #   - POSH_THEME
+    #   - SSH related variables, so that oh-my-posh correctly recognizes the active SSH connection
+    # NOTE: bash inherits the environment by default
+    local KEEP_ENV='POSH_THEME,SSH_CONNECTION,SSH_CLIENT'
+    alias su="su --whitelist-environment=$KEEP_ENV"
+    # add space at end to also expand the following argument; see https://unix.stackexchange.com/a/349290
+    # this way, "sudo su -" preserves the environment too
+    alias sudo="sudo --preserve-env=$KEEP_ENV "
+
+    # themes don't get rendered properly in screen; remove POSH_THEME for them
+    alias screen="env -u POSH_THEME screen"
+}
+
+_unset_aliases() {
+    unalias exa su sudo screen
+}
+
+_unset_theme() {
+    unset PROMPT_COMMAND
+    unset POSH_THEME
+
+    _unset_aliases
+
+    # re-init like new bash shell to reset prompt
+    [[ -f /etc/bash.bashrc ]] && source /etc/bash.bashrc
+    [[ -f ~/.bashrc ]] && source ~/.bashrc
+
+    [[ ${is_verbose+x} ]] && _log "restored default prompt"
+    return 0
+}
+
+
+_set_theme() {
+    # only fancify if either theme is passed or POSH_THEME is set
+    # unless -f is specified, POSH_THEME takes precedence
+    local theme
+    if [[ ${POSH_THEME+x} && ${arg_theme+x} ]]; then
+        if [[ ${is_force+x} ]]; then
+            # argument has precedence over POSH_THEME
+            theme="$arg_theme"
+        else
+            # POSH_THEME has precedence over argument
+            theme="$POSH_THEME"
+        fi
+    elif [[ ${POSH_THEME+x} ]]; then
+        theme="$POSH_THEME"
+    elif [[ ${arg_theme+x} ]]; then
+        theme="$arg_theme"
+    else
+        # no theme provided
+        [[ ${is_verbose+x} ]] && _log "no theme provided"
+        return 1
+    fi
+
+    # $theme is now set, ensure it exists
+    if [[ ! -f $theme ]]; then
+        _log "theme path \"$theme\" does not exist"
+        return 1
+    fi
+
+    # configure oh-my-posh prompt; this will also export POSH_THEME
+    eval "$(oh-my-posh init bash --config "$theme")"
+
+    _set_aliases
+    [[ ${is_verbose+x} ]] && _log "loaded theme \"$theme\""
+
+    return 0
+}
+
+
+_main() {
+    # split combined flag arguments, e.g. -fv to -f -v
+    declare -a args=()
+    local arg
+    for arg in "$@"; do
+        if [[ $arg == -* && $arg != --* && $arg != -*\ * ]]; then
+            # arg starts with single "-" and contains no spaces
+            # split up
+            local i
+            for (( i=1; i<${#arg}; i++ )); do
+                args+=("-${arg:$i:1}")
+            done
+        else
+            args+=("$arg")
+        fi
+    done
+    set -- "${args[@]}"
+
+    # parse arguments
+    local is_verbose is_force is_unset arg_theme
+    while (($#>0)); do
+        case "$1" in
+            -v|--verbose)
+                is_verbose="true"
+                ;;
+            -f|--force)
+                is_force="true"
+                ;;
+            -u|--unset)
+                is_unset="true"
+                ;;
+            -*)
+                _log "invalid flag \"$1\""
+                return 1
+                ;;
+            *)
+                arg_theme="$1"
+                ;;
+        esac
+        shift
+    done
+
+    if [[ ${is_unset+x} ]]; then
+        _unset_theme
+        return $?
+    fi
+    _set_theme
+    return $?
+}
+
+
+_main "$@"
+return $?

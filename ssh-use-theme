@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# This script lets ssh create bash sessions with a specific theme loaded.
+# To use this script, prepend a line in ~/.ssh/authorized_keys with the command, like so:
+#	command="ssh-use-theme /path/to/my-theme.json" ssh-ed25519 AAAAC3Nz..
+
+# ARGUMENTS
+#   1  theme path
+
+
+# If a command was provided over SSH, execute it. Otherwise, start a shell.
+if [[ ${SSH_ORIGINAL_COMMAND+x} ]]; then
+    eval "$SSH_ORIGINAL_COMMAND"
+    exit $?
+else
+    # start a new bash shell
+    if (($# == 0)); then
+        echo "Missing theme path"
+    else
+        export POSH_THEME="$1"
+    fi
+    exec bash -l
+fi
